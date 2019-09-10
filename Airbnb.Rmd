@@ -1,0 +1,367 @@
+---
+title: "NY Borough Airbnb Pricing"
+author: "Emma Highland"
+date: "9/9/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+```
+
+# Purpose
+I want to investigate the relationship between price and location. I am using the [New York City Airbnb Open Data](https://www.kaggle.com/dgomonov/new-york-city-airbnb-open-data) dataset from [Kaggle](https://www.kaggle.com/).
+
+I have two questions I want to answer:
+
+- How can price be broken down into categories? This will be helpful to summarize the data.
+- How do price categories compare between the NY boroughs? In the dataset, a borough is called a "neighborhood group".
+
+# Explore Data
+
+Read in the csv file.
+
+```{r getdata}
+# Read in data
+airbnb <- read.csv('AB_NYC_2019.csv')
+```
+
+Print summary statistics.
+
+```{r summary}
+# Summary stats
+summary(airbnb)
+```
+
+# Clean data
+
+I want to remove NA values. I also want to remove the prices of 0. 
+
+```{r cleaning}
+# Isolate price = 0 (free) and replace with NA
+airbnb.free <- airbnb$price
+airbnb.free[airbnb.free==0] = NA
+
+# Create temporary copy
+airbnb.tmp <- airbnb
+# Add an temporary column with NA instead of 0
+airbnb.tmp['Free'] <- airbnb.free
+
+# Omit all NA values
+airbnb.clean <- data.frame(na.omit(airbnb.tmp))
+
+# Since NAs rows were ommitted for the whole data frame,
+#I can drop the temporary columns
+airbnb.clean <- airbnb.clean[1:16]
+
+# Summary stats for the cleaned data frame
+summary(airbnb.clean)
+```
+
+Many of the features had disproportionately high maximums. Price (after the first round of cleaning) has an average of about $150, but a max of $9999. The "minimum nights" features has a maximum of 1250 nights, which I think could be a mistake as that would be a minimum rental span of over 3 years. The average required stay is under a week. I am going to limit the data set to stays at or under 7 days/1 week.
+
+```{r minstay}
+# Isolate required amount of nights to reserve a location
+airbnb.min.stay <- airbnb.clean$minimum_nights
+# Replace values over my minimum with NA
+airbnb.min.stay[airbnb.min.stay > 7] = NA
+
+# Create a temporary column, as done above
+airbnb.tmp <- airbnb.clean
+airbnb.tmp['minimum.stay'] <- airbnb.min.stay
+airbnb.clean <- data.frame(na.omit(airbnb.tmp))
+airbnb.clean <- airbnb.clean[1:16]
+```
+
+There are other features with high maximums as well. "Number of reviews", "reviews per month"", and "calculated host listings count" have high maximums, but these values seem plausible. Finally, "availability 365" includes locations that are completely book and those that are not booked at all. If these locations are not rented at all, they may serve as an example of what to do/not to do. For this reason, the lowest and highest numbers are valuable parts of the data set.
+
+First, I'm going to make a subset of the data to specifically addresses my traveler questions. I am going to pull price, latitude & longitude, neighborhood, and neighborhood group from the traveler.clean data frame. I will be referring to the neighborhood groups as "boroughs," as this is their proper name.
+
+```{r traveler}
+airbnb.traveler <- data.frame(airbnb.clean$price)
+colnames(airbnb.traveler) <- 'price'
+airbnb.traveler['latitude'] <- airbnb.clean$latitude
+airbnb.traveler['longitude'] <- airbnb.clean$longitude
+airbnb.traveler['neighborhood'] <- airbnb.clean$neighbourhood
+airbnb.traveler['neighborhood_group'] <- airbnb.clean$neighbourhood_group
+
+summary(airbnb.traveler)
+```
+
+# How can I break down price into categories?
+
+I want to develop categories for price, but first I need to get an overall sense of the data.
+
+```{r boxplots}
+# Display data using base stats 
+par(mfrow=c(1,2))
+boxplot(airbnb.traveler$price,main="Price boxplot",xlab='price',ylab='frequency')
+hist(airbnb.traveler$price,main="Price histogram",xlab='price',ylab='frequency')
+```
+
+The boxplot shows that there are a lot of outliers in the price feature. Due to these outliers, it's difficult to visualize most prices in the histogram. I am going to break down price into an outliers category and four expense categories: "cheap","regular","high", and "expensive".
+
+```{r pricesummary}
+summary(airbnb.traveler$price)
+```
+
+The mean value for the entire data set is only 141.4. I want to capture some of this range in a "cheap" category, and some in a "regular" category. The values below the first quartile will be assigned to the category "cheap". I am going to round up, so that rooms that are $70 or less per night will go into this category.
+
+## Cheap price locations
+
+### Summary statisticss
+
+```{r pricecheap}
+price.cheap <- airbnb.traveler$price[airbnb.traveler$price <= 70]
+summary(price.cheap)
+```
+
+The lowest nightly price is $10, but it looks like this must be a rare price because of the higher median and mean. I will use a boxplot to visualize the information from the summary statistics. I will also visualize with a histogram to see how the data is distributed.
+
+### Visualize 
+
+```{r cheapviz}
+par(mfrow=c(1,2))
+boxplot(price.cheap,main="'Cheap' boxplot")
+hist(price.cheap,main="'Cheap' histogram",xlab="")
+```
+
+Very few cheap locations are below $20 a night, with most falling in the $40-$70 range. The Airbnb locations with nightly prices below $20 are outliers.
+
+## Regular price locations
+
+### Summary statistics
+
+First, I'm going to exclude the cheap range from the airbnb data to create a new variable, price.regular
+
+```{r priceregular}
+price.regular <- airbnb.traveler$price[airbnb.traveler$price > 70]
+summary(price.regular)
+```
+
+The outliers are still included at this point, so I need to define an upper boundary. Previously, I used the first quartile as a cut-off point. Here, I am going to use the 3rd quartile again as my cutoff instead to capture more variety. Thus, my upper boundary is 200.
+
+```{r priceregularfinal}
+price.regular <- price.regular[price.regular <= 200]
+summary(price.regular)
+```
+
+### Visualize
+
+```{r priceregularviz}
+par(mfrow=c(1,2))
+boxplot(price.regular,main="'Regular' boxplot")
+hist(price.regular,main="'Regular' histogram",xlab="")
+```
+
+Many regular price locations are still below ~$150 a night. Next, I will define the "high price" locations. I will use 200 as my minimum.
+
+## High price locations
+
+### Summary statistics
+
+```{r pricehigh}
+price.high <- airbnb.traveler$price[airbnb.traveler$price > 200]
+summary(price.high)
+```
+
+I will use the 3rd quartile again for my upper limit, rounding up to 380.
+
+```{r pricehighfinal}
+price.high <- price.high[price.high <= 380]
+summary(price.high)
+```
+
+### Visualize
+
+```{r pricehighviz}
+par(mfrow=c(1,2))
+boxplot(price.high,main="'High' boxplot")
+hist(price.high,main="'High' histogram",xlab="")
+```
+
+## Expensive price locations
+
+### Summary statistics
+
+```{r priceexpensive}
+price.expensive <- airbnb.traveler$price[airbnb.traveler$price > 380]
+summary(price.expensive)
+```
+
+I will follow the same procedure as before, rounding up to 700 this time. This means that price.expensive will have the widest range of prices (320). Cheap, regular, and high prices all have ranges at or below 180. 
+
+```{r priceexpfinal}
+price.expensive <- price.expensive[price.expensive <= 700]
+summary(price.expensive)
+```
+
+### Visualize
+
+```{r priceexpensiveviz}
+par(mfrow=c(1,2))
+boxplot(price.expensive,main="'Expensive' boxplot")
+hist(price.expensive,main="'Expensive' histogram",xlab="")
+```
+
+
+## Price outliers
+
+I still haven't addressed the highest values. They are relatively rare, but still worth considering for now. I will define a new variable and print summary statistcs.
+
+### Summary statistics
+
+```{r priceoutliers}
+price.outliers <- airbnb.traveler$price[airbnb.traveler$price > 700]
+summary(price.outliers)
+```
+
+### Visualize
+
+```{r priceoutlierviz}
+par(mfrow=c(1,2))
+boxplot(price.outliers,main="'Outliers' boxplot")
+hist(price.outliers,main="'Outliers' histogram",xlab="")
+```
+
+As shown in the histogram, very few locations approach the exceedingly high $10,000 price point. This is shown in the outliers on the boxplot and in the sparse histogram. Since the number of Airbnb locations in the outliers category is so low, I am not going to further refine the category. Rather, I am going to exclude the entire outliers category from further analysis. 
+
+## Add price category column
+
+```{r pricecol}
+# Make vectors with category labels
+# Repeat the category name X times, where X is the length 
+# of the original vector
+cheap.var <- rep('cheap',length(price.cheap))
+regular.var <- rep('regular',length(price.regular))
+high.var <- rep('high',length(price.high))
+expensive.var <- rep('expensive',length(price.expensive))
+
+# Create one character vector with all category vectors
+pricecol.char <- append(cheap.var,c(regular.var,high.var,expensive.var))
+# Create one numeric vector with the prices in ascending order
+pricecol.nums <- append(sort(price.cheap), c(sort(price.regular), sort(price.high), sort(price.expensive)))
+```
+
+```{r addna}
+# The new price vectors aren't as long as the airbnb.traveler df
+# The remaining length would have been the outlier category, which
+# was removed.
+
+# Create a variable for the missing length
+missinglength <- length(airbnb.traveler$price) - length(pricecol.nums)
+# Create a vector of NA values using the length variable
+na.vals <- rep(NA,missinglength)
+
+# Append the NA values to the price categories vector
+price.cat.col <- append(pricecol.char,na.vals)
+```
+
+```{r arrangedata}
+# Use arrange function from dplyr to sort the
+# airbnb.traveler price column in ascending order
+airbnb.traveler <- arrange(airbnb.traveler,price)
+# Add in the price_category column to the traveler df
+airbnb.traveler['price_category'] <- price.cat.col
+```
+
+```{r nooutliers}
+# Remove NA values to clear excess rows
+airbnb.traveler <- na.omit(airbnb.traveler)
+```
+
+```{r finalsummary}
+summary(airbnb.traveler)
+```
+
+# How much for an Airbnb in each borough?
+
+### Boroughs
+
+The prevalence of each borough.
+
+```{r neighborhoodgroup}
+summary(airbnb.traveler$neighborhood_group)
+```
+
+Most Airbnb locations are in Brooklyn or Manhattan.
+
+
+I created a subset for each borough and summarized each.
+
+```{r bronx}
+bronx <- subset(airbnb.traveler,neighborhood_group == 'Bronx')
+summary(bronx)
+```
+
+```{r bkn}
+brooklyn <- subset(airbnb.traveler,neighborhood_group == 'Brooklyn')
+summary(brooklyn)
+```
+
+```{r manhattan}
+manhattan <- subset(airbnb.traveler,neighborhood_group == 'Manhattan')
+summary(manhattan)
+```
+
+```{r queens}
+queens <- subset(airbnb.traveler,neighborhood_group == 'Queens')
+summary(queens)
+```
+
+```{r statenisland}
+staten <- subset(airbnb.traveler,neighborhood_group == 'Staten Island')
+summary(staten)
+```
+
+I created a function to compute the amount of locations of each price category.
+
+```{r numsfunc}
+# Take in a dataframe and return the amount of each location 
+# per price category
+numsfunc <- function(borough.df){
+  num.cheap <- length(borough.df$price_category[borough.df$price_category == 'cheap'])
+  num.reg <- length(borough.df$price_category[borough.df$price_category == 'regular'])
+  num.high <- length(borough.df$price_category[borough.df$price_category == 'high'])
+  num.exp <- length(borough.df$price_category[borough.df$price_category == 'expensive'])
+
+   borough.nums <- c(num.cheap,num.reg,num.high,num.exp)
+  return(borough.nums)
+}
+```
+
+Next, I made a function to create a barplot, using the previous function for the length of the bars.
+
+```{r barsfunc}
+# Takes in a dataframe and the title for the barplot
+# Outputs the barplot with the desired title
+barsfunc <- function(borough.df,b.name){
+  # Call previous function, numsfunc
+  y <- numsfunc(borough.df)
+  barplot(y,xlab = 'Price categories',names.arg=c('Cheap','Regular','High','Expensive'),
+          main=b.name) 
+}
+```
+
+I plotted the barplots using my function.
+
+```{r barsbarsbars}
+par(mfrow=c(3,2))
+
+barsfunc(bronx,'The Bronx')
+barsfunc(brooklyn,'Brooklyn')
+barsfunc(manhattan,'Manhattan')
+barsfunc(queens,'Queens')
+barsfunc(staten,'Staten Island')
+```
+
+# Conclusion
+
+Most boroughs have predominantly "cheap" (under $70 per night) and "regular" pricing (over $70 but under $200 per night). Queens and Staten Island both have approximately the same amount of "cheap" and "regular" priced Airbnb locations. The two most prevalent boroughs, Manhattan and Brooklyn, both have more "regular" priced than "cheap" priced Airbnb locations. The Bronx has mostly "cheap" priced locations, with "regular" coming in second. Manhattan has more "high" and "expensive" price locations than the other boroughs. There are more "high" priced locations than "cheap" in Manhattan, unlike the other boroughs. In all boroughs, "high" and "expensive" priced Airbnb locations are relatively rare.
+
+# Key Take-Aways
+
+- Budget-conscious travelers might prefer The Bronx
+- The average tourist will likely gravitate toward Manhattan and Brooklyn, as there are many locations that are reasonably priced
+- Travelers seeking more luxurious options will have the most luck in Manhattan
